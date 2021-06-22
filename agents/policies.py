@@ -391,6 +391,96 @@ class NCMultiAgentPolicy(Policy):
         return torch.cat(s_i, dim=1)
 
 
+class PowerNetMultiAgentPolicy(NCMultiAgentPolicy):
+    """PowerNet"""
+
+    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64,
+                 n_s_ls=None, n_a_ls=None, identical=True):
+        Policy.__init__(self, n_a, n_s, n_step, 'pnet', None, identical)
+        if not self.identical:
+            self.n_s_ls = n_s_ls
+            self.n_a_ls = n_a_ls
+        self.n_agent = n_agent
+        self.neighbor_mask = neighbor_mask
+        self.n_fc = n_fc
+        self.n_h = n_h
+        self._init_net()
+        self._reset()
+
+    def _init_net(self):
+        self.fc_x_layers = nn.ModuleList()
+        self.fc_x1_layers = nn.ModuleList()
+        self.fc_x2_layers = nn.ModuleList()
+        self.fc_x3_layers = nn.ModuleList()
+        self.fc_x4_layers = nn.ModuleList()
+        self.fc_p_layers = nn.ModuleList()
+        self.fc_m_layers = nn.ModuleList()
+        self.lstm_layers = nn.ModuleList()
+        self.actor_heads = nn.ModuleList()
+        self.critic_heads = nn.ModuleList()
+        self.ns_ls_ls = []
+        self.na_ls_ls = []
+        self.n_n_ls = []
+        for i in range(self.n_agent):
+            n_n, n_ns, n_na, ns_ls, na_ls = self._get_neighbor_dim(i)
+            self.ns_ls_ls.append(ns_ls)
+            self.na_ls_ls.append(na_ls)
+            self.n_n_ls.append(n_n)
+            self._init_comm_layer(n_n, n_ns, n_na)
+            n_a = self.n_a if self.identical else self.n_a_ls[i]
+            self._init_actor_head(n_a)
+            self._init_critic_head(n_na)
+
+    def _init_comm_layer(self, n_n, n_ns, n_na):
+        n_lstm_in = 2 * self.n_fc
+        # fc_x_layer = nn.Linear(n_ns, self.n_fc)
+        fc_x_layer = nn.Linear(self.n_fc, self.n_fc)
+        init_layer(fc_x_layer, 'fc')
+        self.fc_x_layers.append(fc_x_layer)
+
+        fc_x1_layer = nn.Linear(self.n_s // 9, 8)
+        init_layer(fc_x1_layer, 'fc')
+        self.fc_x1_layers.append(fc_x1_layer)
+
+        fc_x2_layer = nn.Linear(self.n_s // 9 * 2, 16)
+        init_layer(fc_x2_layer, 'fc')
+        self.fc_x2_layers.append(fc_x2_layer)
+
+        fc_x3_layer = nn.Linear(self.n_s // 9 * 4, 24)
+        init_layer(fc_x3_layer, 'fc')
+        self.fc_x3_layers.append(fc_x3_layer)
+
+        fc_x4_layer = nn.Linear(self.n_s // 9 * 2, 16)
+        init_layer(fc_x4_layer, 'fc')
+        self.fc_x4_layers.append(fc_x4_layer)
+        init_layer(fc_x_layer, 'fc')
+        self.fc_x_layers.append(fc_x_layer)
+        if n_n:
+            fc_m_layer = nn.Linear(self.n_h, self.n_fc)
+            init_layer(fc_m_layer, 'fc')
+            self.fc_m_layers.append(fc_m_layer)
+            lstm_layer = nn.LSTMCell(n_lstm_in, self.n_h)
+        else:
+            self.fc_m_layers.append(None)
+            lstm_layer = nn.LSTMCell(self.n_fc, self.n_h)
+        init_layer(lstm_layer, 'lstm')
+        self.lstm_layers.append(lstm_layer)
+
+    def _get_comm_s(self, i, n_n, x, h, p):
+        # we only pass hidden states as comm info
+        js = torch.from_numpy(np.where(self.neighbor_mask[i])[0]).long()  # tensor([1, 2])
+        m_i = torch.index_select(h, 0, js).mean(dim=0, keepdim=True)
+        if self.identical:
+            x_i = x[i].unsqueeze(0)
+            mx1_i = self.fc_x1_layers[i](x_i[:, 0].unsqueeze(0))
+            mx2_i = self.fc_x2_layers[i](torch.flatten(x_i[:, 1:3]).unsqueeze(0))
+            mx3_i = self.fc_x3_layers[i](torch.flatten(x_i[:, 3:7]).unsqueeze(0))
+            mx4_i = self.fc_x4_layers[i](torch.flatten(x_i[:, 7:]).unsqueeze(0))
+            mx_i = torch.cat([mx1_i, mx2_i, mx3_i, mx4_i], dim=1)
+        s_i = [F.relu(self.fc_x_layers[i](mx_i)), self.fc_m_layers[i](m_i)]
+        return torch.cat(s_i, dim=1)
+
+
 class ConsensusPolicy(NCMultiAgentPolicy):
     def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64,
                  n_s_ls=None, n_a_ls=None, identical=True):

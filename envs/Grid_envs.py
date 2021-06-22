@@ -4,7 +4,7 @@ from abc import ABC
 sys.path.append("../")
 from scipy.integrate import odeint
 
-DER_num = 40
+DER_num = 6
 
 if DER_num == 4:
     from configs.parameters_der4 import *
@@ -42,8 +42,8 @@ class GridEnv(ABC):
         test_seeds = config.get('test_seeds').split(',')
         test_seeds = [int(s) for s in test_seeds]
         self.init_test_seeds(test_seeds)
-        self.min_action = 490
-        self.max_action = 540
+        self.min_action = 480
+        self.max_action = 590
         self.states = []
         self.n_a = 10
         self.n_s = 9
@@ -203,23 +203,75 @@ class GridEnv(ABC):
             naction.append(action[self.neighbor_mask[i] == 1])
         return naction
 
+    def _compute_bus_vol(self, x):
+        bus_voltage = []
+        ioD1 = np.cos(0) * x[4] - np.sin(0) * x[5]
+        ioQ1 = np.sin(0) * x[4] + np.cos(0) * x[5]
+        ioD2 = np.cos(x[6]) * x[9] - np.sin(x[6]) * x[10]
+        ioQ2 = np.sin(x[6]) * x[9] + np.cos(x[6]) * x[10]
+        ioD3 = np.cos(x[11]) * x[14] - np.sin(x[11]) * x[15]
+        ioQ3 = np.sin(x[11]) * x[14] + np.cos(x[11]) * x[15]
+        ioD4 = np.cos(x[16]) * x[19] - np.sin(x[16]) * x[20]
+        ioQ4 = np.sin(x[16]) * x[19] + np.cos(x[16]) * x[20]
+        ioD5 = np.cos(x[21]) * x[24] - np.sin(x[21]) * x[25]
+        ioQ5 = np.sin(x[21]) * x[24] + np.cos(x[21]) * x[25]
+        ioD6 = np.cos(x[26]) * x[29] - np.sin(x[26]) * x[30]
+        ioQ6 = np.sin(x[26]) * x[29] + np.cos(x[26]) * x[30]
+
+        # ----------Defining Bus Voltages-----------------
+        vbD1 = rN * (ioD1 - x[31])
+        vbQ1 = rN * (ioQ1 - x[32])
+        vbD2 = rN * (x[31] + x[49] - x[33])
+        vbQ2 = rN * (x[32] + x[50] - x[34])
+        vbD3 = rN * (ioD2 - x[49])
+        vbQ3 = rN * (ioQ2 - x[50])
+        vbD4 = rN * (x[33] + x[35] - x[37] - x[51])
+        vbQ4 = rN * (x[34] + x[36] - x[38] - x[52])
+        vbD5 = rN * (ioD4 - x[35])
+        vbQ5 = rN * (ioQ4 - x[36])
+        vbD6 = rN * (x[37] + x[39] - x[41])
+        vbQ6 = rN * (x[38] + x[40] - x[42])
+        vbD7 = rN * (ioD6 + x[41] - x[53] - x[43])
+        vbQ7 = rN * (ioQ6 + x[42] - x[54] - x[44])
+        vbD9 = rN * (x[43] + x[45] - x[55])
+        vbQ9 = rN * (x[44] + x[46] - x[56])
+        vbD11 = rN * (x[47] - x[45] - x[57])
+        vbQ11 = rN * (x[48] - x[46] - x[58])
+        vbD13 = rN * (ioD5 - x[47])
+        vbQ13 = rN * (ioQ5 - x[48])
+        vbD14 = rN * (ioD3 - x[39])
+        vbQ14 = rN * (ioQ3 - x[40])
+        bus_voltage = [np.sqrt(vbD1 ** 2 + vbQ1 ** 2), np.sqrt(vbD2 ** 2 + vbQ2 ** 2), np.sqrt(vbD3 ** 2 + vbQ3 ** 2),
+                       np.sqrt(vbD4 ** 2 + vbQ4 ** 2), np.sqrt(vbD5 ** 2 + vbQ5 ** 2), np.sqrt(vbD6 ** 2 + vbQ6 ** 2),
+                       np.sqrt(vbD7 ** 2 + vbQ7 ** 2), np.sqrt(vbD9 ** 2 + vbQ9 ** 2), np.sqrt(vbD11 ** 2 + vbQ11 ** 2),
+                       np.sqrt(vbD13 ** 2 + vbQ13 ** 2), np.sqrt(vbD14 ** 2 + vbQ14 ** 2)]
+
+        return bus_voltage
+
     def get_reward(self, ):
-        reward = []
-        count = 0
+        count = 0  # used to count number of normal voltages
         x = np.array(self.x0)
+        error = 0
+        self.v_buses = self._compute_bus_vol(x)
+
+        # critic bus control
+        for v_bus in self.v_buses:
+            error += np.abs(Vnom - v_bus) / Vnom  # bus 484 in the figure
+        error = error / len(self.v_buses)
+        if self.pf_fail:
+            reward = [-10] * self.DER_num
+        elif error <= 0.05:
+            count += 1
+            reward = [abs(error - 0.05)] * self.DER_num
+        elif 0.05 < error <= 0.25:  # range to [0, 0.05]
+            r = - (error - 0.05) / 4
+            reward = [r] * self.DER_num
+        else:
+            reward = [-10] * self.DER_num
+
         for j in range(self.DER_num):
             # voltage of buses
             vi = (x[self.DER_num * 6 + self.lines_num * 2 + self.loads_num * 2 + j + 1] - nq[j] * x[5 * j + 3]) / Vnom
-            self.vbuses[j].append(vi)
-            if self.pf_fail:
-                reward.append(-10)
-            elif 0.95 <= vi <= 1.05:
-                count += 1
-                reward.append(0.05 - np.abs(1 - vi))
-            elif vi <= 0.8 or vi >= 1.25:
-                reward.append(-10)
-            else:
-                reward.append(- np.abs(1 - vi))
         if count == self.n_agent and self.index == 0:
             self.step_list[-1] = self.t
             self.index = 1

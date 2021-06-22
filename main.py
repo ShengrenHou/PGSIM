@@ -7,15 +7,15 @@ import configparser
 import logging
 from torch.utils.tensorboard.writer import SummaryWriter
 from envs.Grid_envs import GridEnv
-from agents.models import IA2C, IA2C_FP, MA2C_NC, IA2C_CU, MA2C_CNET, MA2C_DIAL
+from agents.models import IA2C, IA2C_FP, MA2C_NC, IA2C_CU, MA2C_CNET, MA2C_PNET, MA2C_DIAL
 from trainer import (Counter, Trainer, Tester, Evaluator,
                      check_dir, copy_file, find_file,
                      init_dir, init_log, init_test_flag)
 
 
 def parse_args():
-    default_base_dir = './ma2c_cnet_der6'
-    default_config_dir = 'configs/config_ma2c_cnet_DER6.ini'
+    default_base_dir = './ma2c_pnet_der6'
+    default_config_dir = 'configs/config_ma2c_pnet_DER6.ini'
     parser = argparse.ArgumentParser(description=('Train or evaluate policy on RL environment '
                                                   'using A2C'))
     parser.add_argument('--base-dir', type=str, required=False,
@@ -44,6 +44,10 @@ def init_agent(env, config, total_step, seed):
     elif env.agent == 'ma2c_cnet':
         # CommNet, it calculates the mean of all messages instead of encoding them
         return MA2C_CNET(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                         total_step, config, seed=seed)
+    elif env.agent == 'ma2c_pnet':
+        # PowerNet
+        return MA2C_PNET(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                          total_step, config, seed=seed)
     elif env.agent == 'ma2c_cu':
         """

@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 from agents.utils import OnPolicyBuffer, MultiAgentOnPolicyBuffer, Scheduler
 from agents.policies import (LstmPolicy, FPPolicy, ConsensusPolicy, NCMultiAgentPolicy,
-                             CommNetMultiAgentPolicy, DIALMultiAgentPolicy)
+                             CommNetMultiAgentPolicy, DIALMultiAgentPolicy, PowerNetMultiAgentPolicy)
 import logging
 import numpy as np
 
@@ -345,6 +345,22 @@ class MA2C_CNET(MA2C_NC):
                                            self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm,
                                            n_s_ls=self.n_s_ls, n_a_ls=self.n_a_ls, identical=False)
 
+class MA2C_PNET(MA2C_NC):
+    # powernet
+    def __init__(self, n_s_ls, n_a_ls, neighbor_mask, distance_mask, coop_gamma,
+                 total_step, model_config, seed=0, use_gpu=False):
+        self.name = 'ma2c_pnet'
+        self._init_algo(n_s_ls, n_a_ls, neighbor_mask, distance_mask, coop_gamma,
+                        total_step, seed, use_gpu, model_config)
+
+    def _init_policy(self):
+        if self.identical_agent:
+            return PowerNetMultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
+                                            self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
+        else:
+            return PowerNetMultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
+                                            self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm,
+                                            n_s_ls=self.n_s_ls, n_a_ls=self.n_a_ls, identical=False)
 
 class MA2C_DIAL(MA2C_NC):
     def __init__(self, n_s_ls, n_a_ls, neighbor_mask, distance_mask, coop_gamma,
